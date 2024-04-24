@@ -36,8 +36,17 @@ from .factory.factory_task_insertion import FactoryTaskInsertion
 from .factory.factory_task_nut_bolt_pick import FactoryTaskNutBoltPick
 from .factory.factory_task_nut_bolt_place import FactoryTaskNutBoltPlace
 from .factory.factory_task_nut_bolt_screw import FactoryTaskNutBoltScrew
+
 from .franka_cabinet import FrankaCabinet
+from .franka_cabinet_no_props import FrankaCabinetNoProps               # [Kunal] Added this task
+from .franka_cabinet_only_reach import FrankaCabinetOnlyReach           # [Kunal] Added this task
+from .franka_cabinet_add_box import FrankaCabinetAddBox                 # [Kunal] Added this task
+from .franka_cabinet_add_cylinder import FrankaCabinetAddCylinder       # [Kunal] Added this task
+from .franka_cabinet_remove_cabinet_NOT_WORKING import FrankaCabinetRemoveCabinet   # [Kunal] Added this task
+from .franka_cabinet_change_target import FrankaCabinetChangeTarget     # [Kunal] Added this task
+from .franka_reach import FrankaReach                                   # [Kunal] Added this task
 from .franka_cube_stack import FrankaCubeStack
+
 from .humanoid import Humanoid
 from .humanoid_amp import HumanoidAMP
 from .ingenuity import Ingenuity
@@ -103,8 +112,17 @@ isaacgym_task_map = {
     "FactoryTaskNutBoltScrew": FactoryTaskNutBoltScrew,
     "IndustRealTaskPegsInsert": IndustRealTaskPegsInsert,
     "IndustRealTaskGearsInsert": IndustRealTaskGearsInsert,
+
     "FrankaCabinet": FrankaCabinet,
+    "FrankaCabinetNoProps": FrankaCabinetNoProps,               # [Kunal] Added this task
+    "FrankaCabinetOnlyReach": FrankaCabinetOnlyReach,           # [Kunal] Added this task
+    "FrankaCabinetAddBox": FrankaCabinetAddBox,                 # [Kunal] Added this task
+    "FrankaCabinetAddCylinder": FrankaCabinetAddCylinder,       # [Kunal] Added this task
+    "FrankaCabinetRemoveCabinet": FrankaCabinetRemoveCabinet,   # [Kunal] Added this task
+    "FrankaCabinetChangeTarget": FrankaCabinetChangeTarget,     # [Kunal] Added this task
+    "FrankaReach": FrankaReach,                                 # [Kunal] Added this task
     "FrankaCubeStack": FrankaCubeStack,
+
     "Humanoid": Humanoid,
     "HumanoidAMP": HumanoidAMP,
     "Ingenuity": Ingenuity,

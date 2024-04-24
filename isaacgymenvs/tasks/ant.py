@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+from datetime import datetime
 
 import numpy as np
 import os
@@ -43,7 +44,7 @@ class Ant(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
 
         self.cfg = cfg
-
+        self.test = False
         self.max_episode_length = self.cfg["env"]["episodeLength"]
 
         self.randomization_params = self.cfg["task"]["randomization_params"]
@@ -64,7 +65,7 @@ class Ant(VecTask):
         self.plane_dynamic_friction = self.cfg["env"]["plane"]["dynamicFriction"]
         self.plane_restitution = self.cfg["env"]["plane"]["restitution"]
 
-        self.cfg["env"]["numObservations"] = 60
+        self.cfg["env"]["numObservations"] = 61
         self.cfg["env"]["numActions"] = 8
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
@@ -107,11 +108,16 @@ class Ant(VecTask):
         self.basis_vec0 = self.heading_vec.clone()
         self.basis_vec1 = self.up_vec.clone()
 
-        self.targets = to_torch([1000, 0, 0], device=self.device).repeat((self.num_envs, 1))
+        self.targets = to_torch([100, 0, 0], device=self.device).repeat((self.num_envs, 1))
         self.target_dirs = to_torch([1, 0, 0], device=self.device).repeat((self.num_envs, 1))
         self.dt = self.cfg["sim"]["dt"]
         self.potentials = to_torch([-1000./self.dt], device=self.device).repeat(self.num_envs)
         self.prev_potentials = self.potentials.clone()
+
+        self.target_radius = 5
+        self.succ_tracker_buf = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
+        self.prev_succ_tracker_buf = self.succ_tracker_buf.clone()
+        self.counter = 0
 
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
@@ -212,7 +218,7 @@ class Ant(VecTask):
             self.extremities_index[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.ant_handles[0], extremity_names[i])
 
     def compute_reward(self, actions):
-        self.rew_buf[:], self.reset_buf[:] = compute_ant_reward(
+        self.rew_buf[:], self.reset_buf[:], self.succ_tracker_buf[:], self.prev_succ_tracker_buf[:], self.target_radius, self.counter = compute_ant_reward(
             self.obs_buf,
             self.reset_buf,
             self.progress_buf,
@@ -226,7 +232,12 @@ class Ant(VecTask):
             self.joints_at_limit_cost_scale,
             self.termination_height,
             self.death_cost,
-            self.max_episode_length
+            self.max_episode_length,
+            self.succ_tracker_buf,
+            self.prev_succ_tracker_buf,
+            self.target_radius,
+            self.counter,
+            self.test,
         )
 
     def compute_observations(self):
@@ -240,6 +251,8 @@ class Ant(VecTask):
             self.dof_limits_lower, self.dof_limits_upper, self.dof_vel_scale,
             self.vec_sensor_tensor, self.actions, self.dt, self.contact_force_scale,
             self.basis_vec0, self.basis_vec1, self.up_axis_idx)
+
+
 
     # Required for PBT training
     def compute_true_objective(self):
@@ -278,6 +291,12 @@ class Ant(VecTask):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
+        # Write succ_tracker_buf to a file
+        with open('succ_tracker_buf.txt', 'w') as f:
+            f.write("Success: " + str(self.succ_tracker_buf.sum()))
+            f.write("\nRadius: " + str(self.target_radius))
+            f.write("\nTarget: " + str(self.targets[0]))
+
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
         forces = self.actions * self.joint_gears * self.power_scale
@@ -293,7 +312,7 @@ class Ant(VecTask):
             self.reset_idx(env_ids)
 
         self.compute_observations()
-        self.compute_reward(self.actions)
+        self. compute_reward(self.actions)
         self.compute_true_objective()
 
         # debug viz
@@ -337,10 +356,14 @@ def compute_ant_reward(
     joints_at_limit_cost_scale,
     termination_height,
     death_cost,
-    max_episode_length
+    max_episode_length,
+    succ_tracker_buf,
+    prev_succ_tracker_buf,
+    target_radius,
+    counter,
+    test
 ):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, float, Tensor, Tensor, float, float, float, float, float, float) -> Tuple[Tensor, Tensor]
-
+    # type: (Tensor, Tensor, Tensor, Tensor, float, float, Tensor, Tensor, float, float, float, float, float, float, Tensor, Tensor, float, int, bool) -> Tuple[Tensor, Tensor, Tensor, Tensor, float, int]
     # reward from direction headed
     heading_weight_tensor = torch.ones_like(obs_buf[:, 11]) * heading_weight
     heading_reward = torch.where(obs_buf[:, 11] > 0.8, heading_weight_tensor, heading_weight * obs_buf[:, 11] / 0.8)
@@ -348,6 +371,10 @@ def compute_ant_reward(
     # aligning up axis of ant and environment
     up_reward = torch.zeros_like(heading_reward)
     up_reward = torch.where(obs_buf[:, 10] > 0.93, up_reward + up_weight, up_reward)
+
+    # completion reward for reaching target radius
+    target_reward = torch.zeros_like(heading_reward)
+    target_reward = torch.where(obs_buf[:, -1] < target_radius, torch.full_like(target_reward, 10), target_reward)
 
     # energy penalty for movement
     actions_cost = torch.sum(actions ** 2, dim=-1)
@@ -358,17 +385,38 @@ def compute_ant_reward(
     alive_reward = torch.ones_like(potentials) * 0.5
     progress_reward = potentials - prev_potentials
 
-    total_reward = progress_reward + alive_reward + up_reward + heading_reward - \
+    total_reward = progress_reward + alive_reward + up_reward + heading_reward + target_reward - \
         actions_cost_scale * actions_cost - energy_cost_scale * electricity_cost - dof_at_limit_cost * joints_at_limit_cost_scale
 
     # adjust reward for fallen agents
     total_reward = torch.where(obs_buf[:, 0] < termination_height, torch.ones_like(total_reward) * death_cost, total_reward)
 
     # reset agents
-    reset = torch.where(obs_buf[:, 0] < termination_height, torch.ones_like(reset_buf), reset_buf)
-    reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset)
+    # If distance to the target is less than the target radius, then the agent is considered to have reached the target and should reset
+    reset_succ = torch.where(obs_buf[:, -1] < target_radius, torch.ones_like(reset_buf), reset_buf)
+    succ_tracker_buf = torch.where(reset_succ, torch.ones_like(succ_tracker_buf), prev_succ_tracker_buf)
 
-    return total_reward, reset
+    reset_fail = torch.where(obs_buf[:, 0] < termination_height, torch.ones_like(reset_buf), reset_buf)
+    reset_fail = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_fail)
+
+    succ_tracker_buf = torch.where(reset_fail == 1, torch.zeros_like(succ_tracker_buf), succ_tracker_buf)
+    reset = torch.where(reset_fail + reset_succ > 0, torch.ones_like(reset_buf), reset_buf)
+    prev_succ_tracker_buf = succ_tracker_buf.clone()
+
+    if counter % 10 == 0:
+        print("Succ tracker buf: ", succ_tracker_buf.sum())
+        print("Reset fail: ", reset_fail.sum())
+        print("Radius: ", target_radius)
+
+    counter += 1
+    # # change radius if majority of targets are able to reach the target
+    if torch.sum(succ_tracker_buf) > 0.8 * succ_tracker_buf.shape[0] and not test:
+        target_radius *= 0.9
+
+        # print(torch.sum(succ_tracker_buf))
+        # print("Target radius changed to: ", target_radius)
+
+    return total_reward, reset, succ_tracker_buf, prev_succ_tracker_buf, target_radius, counter
 
 
 @torch.jit.script
@@ -378,7 +426,6 @@ def compute_ant_observations(obs_buf, root_states, targets, potentials,
                              sensor_force_torques, actions, dt, contact_force_scale,
                              basis_vec0, basis_vec1, up_axis_idx):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, float, float, Tensor, Tensor, int) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]
-
     torso_position = root_states[:, 0:3]
     torso_rotation = root_states[:, 3:7]
     velocity = root_states[:, 7:10]
@@ -386,6 +433,9 @@ def compute_ant_observations(obs_buf, root_states, targets, potentials,
 
     to_target = targets - torso_position
     to_target[:, 2] = 0.0
+
+    # euclidean distance of to_target
+    distance = torch.norm(to_target, p=2, dim=-1)
 
     prev_potentials_new = potentials.clone()
     potentials = -torch.norm(to_target, p=2, dim=-1) / dt
@@ -395,14 +445,13 @@ def compute_ant_observations(obs_buf, root_states, targets, potentials,
 
     vel_loc, angvel_loc, roll, pitch, yaw, angle_to_target = compute_rot(
         torso_quat, velocity, ang_velocity, targets, torso_position)
-
     dof_pos_scaled = unscale(dof_pos, dof_limits_lower, dof_limits_upper)
 
-    # obs_buf shapes: 1, 3, 3, 1, 1, 1, 1, 1, num_dofs(8), num_dofs(8), 24, num_dofs(8)
+    # obs_buf shapes: 1, 3, 3, 1, 1, 1, 1, 1, num_dofs(8), num_dofs(8), 24, num_dofs(8), 1
     obs = torch.cat((torso_position[:, up_axis_idx].view(-1, 1), vel_loc, angvel_loc,
                      yaw.unsqueeze(-1), roll.unsqueeze(-1), angle_to_target.unsqueeze(-1),
                      up_proj.unsqueeze(-1), heading_proj.unsqueeze(-1), dof_pos_scaled,
                      dof_vel * dof_vel_scale, sensor_force_torques.view(-1, 24) * contact_force_scale,
-                     actions), dim=-1)
+                     actions, distance.unsqueeze(-1)), dim=-1)
 
     return obs, potentials, prev_potentials_new, up_vec, heading_vec

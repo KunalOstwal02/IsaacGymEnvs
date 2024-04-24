@@ -96,6 +96,10 @@ class Quadcopter(VecTask):
 
         self.all_actor_indices = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
 
+        self.radius = 2.0
+        self.succ_buf = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
+        self.prev_succ_buf = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
+
         if self.viewer:
             cam_pos = gymapi.Vec3(1.0, 1.0, 1.8)
             cam_target = gymapi.Vec3(2.2, 2.0, 1.0)
@@ -370,12 +374,13 @@ class Quadcopter(VecTask):
         return self.obs_buf
 
     def compute_reward(self):
-        self.rew_buf[:], self.reset_buf[:] = compute_quadcopter_reward(
+        self.rew_buf[:], self.reset_buf[:], self.succ_buf[:], self.prev_succ_buf[:], self.radius = compute_quadcopter_reward(
             self.root_positions,
             self.root_quats,
             self.root_linvels,
             self.root_angvels,
-            self.reset_buf, self.progress_buf, self.max_episode_length
+            self.reset_buf, self.progress_buf, self.max_episode_length,
+            self.succ_buf, self.prev_succ_buf, self.radius
         )
 
 
@@ -384,14 +389,17 @@ class Quadcopter(VecTask):
 #####################################################################
 
 @torch.jit.script
-def compute_quadcopter_reward(root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+def compute_quadcopter_reward(root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length, succ_buf, prev_succ_buf, radius):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, float) -> Tuple[Tensor, Tensor, Tensor, Tensor, float]
 
     # distance to target
     target_dist = torch.sqrt(root_positions[..., 0] * root_positions[..., 0] +
                              root_positions[..., 1] * root_positions[..., 1] +
                              (1 - root_positions[..., 2]) * (1 - root_positions[..., 2]))
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
+
+    target_reward = torch.zeros_like(pos_reward)
+    target_reward = torch.where(target_dist < radius, 1.0, target_reward)
 
     # uprightness
     ups = quat_axis(root_quats, 2)
@@ -404,15 +412,30 @@ def compute_quadcopter_reward(root_positions, root_quats, root_linvels, root_ang
 
     # combined reward
     # uprigness and spinning only matter when close to the target
-    reward = pos_reward + pos_reward * (up_reward + spinnage_reward)
+    reward = pos_reward + target_reward + (pos_reward + target_reward) * (up_reward + spinnage_reward)
+
+    # resets due to success in reaching radius
+    reset_succ = torch.where(target_dist < radius, torch.ones_like(reset_buf), torch.zeros_like(reset_buf))
+    succ_buf = torch.where(reset_succ, torch.ones_like(succ_buf), prev_succ_buf)
+    prev_succ_buf = succ_buf.clone()
 
     # resets due to misbehavior
     ones = torch.ones_like(reset_buf)
     die = torch.zeros_like(reset_buf)
-    die = torch.where(target_dist > 3.0, ones, die)
-    die = torch.where(root_positions[..., 2] < 0.3, ones, die)
+    reset_fail = torch.where(target_dist > 3.0, ones, die)
+    reset_fail = torch.where(root_positions[..., 2] < radius, ones, reset_fail)
+
+    reset = torch.where(reset_succ + reset_fail > 0, ones, die)
 
     # resets due to episode length
-    reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)
+    reset = torch.where(progress_buf >= max_episode_length - 1, ones, reset)
 
-    return reward, reset
+    print(f"Success: {torch.sum(succ_buf)}")
+    print(f"Resets: {torch.sum(reset)}")
+
+    if torch.sum(succ_buf) > 0.8 * succ_buf.size(0):
+        radius = radius * 0.9
+        succ_buf = torch.zeros_like(succ_buf)
+        prev_succ_buf = torch.zeros_like(prev_succ_buf)
+
+    return reward, reset, succ_buf, prev_succ_buf, radius

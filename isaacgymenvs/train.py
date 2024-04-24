@@ -32,7 +32,6 @@
 import hydra
 
 from omegaconf import DictConfig, OmegaConf
-from omegaconf import DictConfig, OmegaConf
 
 
 def preprocess_train_config(cfg, config_dict):
@@ -153,7 +152,8 @@ def launch_rlg_hydra(cfg: DictConfig):
     dict_cls = ige_env_cls.dict_obs_cls if hasattr(ige_env_cls, 'dict_obs_cls') and ige_env_cls.dict_obs_cls else False
 
     if dict_cls:
-        
+        print("cfg: " + str(cfg['test']))
+
         obs_spec = {}
         actor_net_cfg = cfg.train.params.network
         obs_spec['obs'] = {'names': list(actor_net_cfg.inputs.keys()), 'concat': not actor_net_cfg.name == "complex_net", 'space_name': 'observation_space'}
@@ -196,6 +196,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     # create runner and set the settings
     runner = build_runner(MultiObserver(observers))
     runner.load(rlg_config_dict)
+    # print('Runner: ', rlg_config_dict)
     runner.reset()
 
     # dump config dict

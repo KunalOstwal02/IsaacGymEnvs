@@ -425,7 +425,7 @@ def compute_ingenuity_reward(root_positions, target_root_positions, root_quats, 
     spinnage_reward = 1.0 / (1.0 + spinnage * spinnage)
 
     # combined reward
-    # uprigness and spinning only matter when close to the target
+    # uprightness and spinning only matter when close to the target
     reward = pos_reward + pos_reward * (up_reward + spinnage_reward)
 
     # resets due to misbehavior
