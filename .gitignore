@@ -1,6 +1,6 @@
 videos
 /isaacgymenvs/logs
-*train_dir*
+#*train_dir*
 *wandb*
 *ige_logs*
 *.egg-info
