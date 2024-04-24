@@ -1,0 +1,97 @@
+<?xml version="1.0"?>
+<robot name="hollow_box_with_centered_cuboid">
+  <!-- Base panel -->
+  <link name="base_panel">
+    <visual>
+      <geometry>
+        <box size="1.0 1.0 0.05"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- Definition of the side panels -->
+  <!-- Each side panel is defined with a slight thickness (0.05 units) -->
+  <!-- The panels are positioned to form the sides of the box -->
+
+  <!-- Front panel -->
+  <link name="front_panel">
+    <visual>
+      <geometry>
+        <box size="1.0 0.05 1.0"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- Back panel -->
+  <link name="back_panel">
+    <visual>
+      <geometry>
+        <box size="1.0 0.05 1.0"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- Left panel -->
+  <link name="left_panel">
+    <visual>
+      <geometry>
+        <box size="0.05 1.0 1.0"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- Right panel -->
+  <link name="right_panel">
+    <visual>
+      <geometry>
+        <box size="0.05 1.0 1.0"/>
+      </geometry>
+    </visual>
+  </link>
+  <!-- Centered cuboid -->
+  <link name="centered_cuboid">
+    <visual>
+      <geometry>
+        <box size="0.25 0.25 0.25"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0.9 0.2 0.1 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Adjusted joint for the centered cuboid to rest at the base -->
+  <joint name="cuboid_joint" type="fixed">
+    <parent link="base_panel"/>
+    <child link="centered_cuboid"/>
+    <!-- Since we want the cuboid to rest on the base, the z-value is half the height of the cuboid -->
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+  </joint>
+  <!-- Fixed joints to position the panels relative to the base panel -->
+  <!-- Each joint positions and orients a side panel to form the box -->
+
+  <joint name="front_joint" type="fixed">
+    <parent link="base_panel"/>
+    <child link="front_panel"/>
+    <origin xyz="0 -0.525 0.5" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="back_joint" type="fixed">
+    <parent link="base_panel"/>
+    <child link="back_panel"/>
+    <origin xyz="0 0.525 0.5" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="left_joint" type="fixed">
+    <parent link="base_panel"/>
+    <child link="left_panel"/>
+    <origin xyz="-0.525 0 0.5" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="right_joint" type="fixed">
+    <parent link="base_panel"/>
+    <child link="right_panel"/>
+    <origin xyz="0.525 0 0.5" rpy="0 0 0"/>
+  </joint>
+
+</robot>
