@@ -1,0 +1,150 @@
+task:
+  mode:
+    export_scene: false
+    export_states: false
+  sim:
+    dt: 0.016667
+    substeps: 2
+    up_axis: z
+    use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+    gravity:
+    - 0.0
+    - 0.0
+    - -9.81
+    add_damping: true
+    physx:
+      solver_type: ${....solver_type}
+      num_threads: ${....num_threads}
+      num_subscenes: ${....num_subscenes}
+      use_gpu: ${contains:"cuda",${....sim_device}}
+      num_position_iterations: 16
+      num_velocity_iterations: 0
+      contact_offset: 0.005
+      rest_offset: 0.0
+      bounce_threshold_velocity: 0.2
+      max_depenetration_velocity: 5.0
+      friction_offset_threshold: 0.01
+      friction_correlation_distance: 0.00625
+      max_gpu_contact_pairs: 1048576
+      default_buffer_size_multiplier: 8.0
+      contact_collection: 1
+  env:
+    env_spacing: 0.5
+    franka_depth: 0.5
+    table_height: 0.4
+    franka_friction: 1.0
+    table_friction: 0.3
+    numEnvs: ${resolve_default:128,${...num_envs}}
+    numObservations: 32
+    numActions: 12
+  name: FactoryTaskGears
+  physics_engine: ${..physics_engine}
+  randomize:
+    joint_noise: 0.0
+    initial_state: random
+    gears_bias_y: -0.1
+    gears_bias_z: 0.0
+    gears_noise_xy: 0.05
+  rl:
+    max_episode_length: 1024
+train:
+  params:
+    seed: ${...seed}
+    algo:
+      name: a2c_continuous
+    model:
+      name: continuous_a2c_logstd
+    network:
+      name: actor_critic
+      separate: false
+      space:
+        continuous:
+          mu_activation: None
+          sigma_activation: None
+          mu_init:
+            name: default
+          sigma_init:
+            name: const_initializer
+            val: 0
+          fixed_sigma: true
+      mlp:
+        units:
+        - 256
+        - 128
+        - 64
+        activation: elu
+        d2rl: false
+        initializer:
+          name: default
+        regularizer:
+          name: None
+    load_checkpoint: ${if:${...checkpoint},True,False}
+    load_path: ${...checkpoint}
+    config:
+      name: ${resolve_default:FactoryTaskGears,${....experiment}}
+      full_experiment_name: ${.name}
+      env_name: rlgpu
+      multi_gpu: ${....multi_gpu}
+      ppo: true
+      mixed_precision: true
+      normalize_input: true
+      normalize_value: true
+      value_bootstrap: true
+      num_actors: ${....task.env.numEnvs}
+      reward_shaper:
+        scale_value: 1.0
+      normalize_advantage: true
+      gamma: 0.99
+      tau: 0.95
+      learning_rate: 0.0001
+      lr_schedule: fixed
+      schedule_type: standard
+      kl_threshold: 0.016
+      score_to_win: 20000
+      max_epochs: ${resolve_default:8192,${....max_iterations}}
+      save_best_after: 50
+      save_frequency: 100
+      print_stats: true
+      grad_norm: 1.0
+      entropy_coef: 0.0
+      truncate_grads: false
+      e_clip: 0.2
+      horizon_length: 32
+      minibatch_size: 512
+      mini_epochs: 8
+      critic_coef: 2
+      clip_value: true
+      seq_len: 4
+      bounds_loss_coef: 0.0001
+pbt:
+  enabled: false
+task_name: ${task.name}
+experiment: ''
+num_envs: ''
+seed: 42
+torch_deterministic: false
+max_iterations: ''
+physics_engine: physx
+pipeline: gpu
+sim_device: cuda:0
+rl_device: cuda:0
+graphics_device_id: 0
+num_threads: 4
+solver_type: 1
+num_subscenes: 4
+test: false
+checkpoint: ''
+sigma: ''
+multi_gpu: false
+wandb_activate: false
+wandb_group: ''
+wandb_name: ${train.params.config.name}
+wandb_entity: ''
+wandb_project: isaacgymenvs
+wandb_tags: []
+wandb_logcode_dir: ''
+capture_video: false
+capture_video_freq: 1464
+capture_video_len: 100
+force_render: true
+headless: false
